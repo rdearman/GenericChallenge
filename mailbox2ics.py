@@ -59,7 +59,7 @@ to_folder = config['SMTP']['processed']
 db_name = config['MYSQL']['DB_NAME']
 db_user = config['MYSQL']['DB_USER']
 db_host = config['MYSQL']['DB_HOST']
-db_password = config['MYSQL']['DB_PASSWORD']   
+db_password = config['MYSQL']['DB_PASSWORD']
 
 def db_connect ():
     try:
@@ -74,7 +74,7 @@ def db_connect ():
             print(err)
 
 # --------------------------------------------------
-            
+
 def SendEmail (emailSubject, emailSender):
     receiver_email = emailSender
     messagep1 = """\
@@ -120,7 +120,6 @@ def Registration (emailSubject, baseSenderEmail, emailSender, cnx):
     else:
         print ("ERROR")
 
-        
     query = ("SELECT LanguageCode FROM Entries WHERE UserName='{:s}'".format(PUsername))
     cursor.execute(query)
     results = cursor.fetchall()
@@ -153,7 +152,7 @@ def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
     language = tmp[0]
     now = datetime.now()
     tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
-    
+
     query = ("SELECT UserName FROM Participants WHERE Email='{:s}'".format(baseSenderEmail))
     cursor.execute(query)
     results = cursor.fetchone()
@@ -161,26 +160,24 @@ def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
         PUsername = results[0]
     else:
         print("Unregistered User: {:s}".format(baseSenderEmail))
-        return 
+        return
 
     query = ("SELECT Id FROM Entries WHERE UserName='{:s}' and LanguageCode='{:s}'".format(PUsername,language))
     cursor.execute(query)
     results = cursor.fetchone()
     if results != None :
         entryId = results[0]
-        
+
     for token in emailSubject.split():
         if token == "#read" or token == "#reading" :
             query = ("INSERT INTO Actions (EntryId, ActionCode, Time, AmountData, TextData) VALUES ('{:d}', '{:s}' , '{:s}', '{:d}', '{:s}')".format(entryId, actionCodes[1], tmstamp, number, title)  )
             cursor.execute(query)
             query = ("UPDATE Entries SET PagesRead=(SELECT sum(AmountData) FROM Actions WHERE ActionCode='{:s}' AND EntryId='{:d}') where Id='{:d}'".format(actionCodes[1],entryId,entryId ) )
-#            print(query)
             cursor.execute(query)
         elif token == "#watch" or token == "#watched" or token == "#watching":
             query = ("INSERT INTO Actions (EntryId, ActionCode, Time, AmountData, TextData) VALUES ('{:d}', '{:s}' , '{:s}', '{:d}', '{:s}')".format(entryId, actionCodes[0], tmstamp, number, title))
             cursor.execute(query)
             query = ("UPDATE Entries SET MinutesWatched=(SELECT sum(AmountData) FROM Actions WHERE ActionCode='{:s}' AND EntryId='{:d}') where Id='{:d}'".format(actionCodes[0],entryId,entryId ) )
-#            print(query)
             cursor.execute(query)
         else:
             continue
@@ -190,7 +187,7 @@ def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
     cursor.close()
     exit(0)
     SendEmail(emailSubject,emailSender)
-        
+
 # --------------------------------------------------
 
 def main():
@@ -226,16 +223,14 @@ def main():
             result = mail_server.copy(num, to_folder)
             if result[0] == 'OK':
                 mov, data = mail_server.store( num, '+FLAGS', r'(\Deleted)')
-            
-                
+
     finally:
         # Disconnect from the IMAP server
         if mail_server.state != 'AUTH':
             mail_server.close()
         mail_server.logout()
 
-        
-    print ("Disconnected\n")
+    #print ("Disconnected\n")
     return 0
 
 if __name__ == '__main__':

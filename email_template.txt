@@ -1,0 +1,11 @@
+Subject: Participant Registration
+
+Dear Admin,
+
+I would like to register for the book and film watching challenge. Please find my details below:
+
+Name: [Your Name]
+Primary Language: [ISO Language Code]
+
+Thank you,
+[Your Name]
