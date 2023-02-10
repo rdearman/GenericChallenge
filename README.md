@@ -15,7 +15,7 @@ For the moment the short term goal is to:
 
 Medium term goals:
 - Create a DB which will support all the current language challenges on the language forum. These are:
-    1. Super Challenge
+    1. Super Challenge (https://github.com/language-learners/superchallengebot)
     2. Output Challenge
     3. 365 Challenge
     4. Free & Legal Challenge
