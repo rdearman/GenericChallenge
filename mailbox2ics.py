@@ -16,6 +16,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import mysql.connector
 from mysql.connector import errorcode
+import subprocess
+ 
+
 
 # --- TODO --- #
 # [] update the streak data 
@@ -47,7 +50,8 @@ emailDate = ""
 emailSubject = ""
 emailSender = ""
 now = datetime.now()
-today = now.strftime("%m/%d/%Y %H:%M:%S")
+today = subprocess.getoutput('date -R')
+#today = now.strftime("%m/%d/%Y %H:%M:%S")
 TLS_port = config['SMTP']['TLS_port']
 port = config['SMTP']['SMTP_port']
 smtp_hostname = config['SMTP']['smtp_server']
@@ -59,7 +63,7 @@ to_folder = config['SMTP']['processed']
 db_name = config['MYSQL']['DB_NAME']
 db_user = config['MYSQL']['DB_USER']
 db_host = config['MYSQL']['DB_HOST']
-db_password = config['MYSQL']['DB_PASSWORD']
+db_password = config['MYSQL']['DB_PASSWORD']   
 
 def db_connect ():
     try:
@@ -74,7 +78,7 @@ def db_connect ():
             print(err)
 
 # --------------------------------------------------
-
+            
 def SendEmail (emailSubject, emailSender):
     receiver_email = emailSender
     messagep1 = """\
@@ -100,7 +104,7 @@ Your message has been received and processed.\n\n"""
 # --------------------------------------------------
 
 def Registration (emailSubject, baseSenderEmail, emailSender, cnx):
-    ParticpantUsername = re.findall("^#register\s+(\w+)\s+#.*", emailSubject)
+    ParticpantUsername = re.findall("^#register\s+#username\s+(\w+)\s+#.*", emailSubject)
     PUsername = ParticpantUsername[0]
     RegistrationLanguages = []
     for token in emailSubject.split():
@@ -120,6 +124,7 @@ def Registration (emailSubject, baseSenderEmail, emailSender, cnx):
     else:
         print ("ERROR")
 
+        
     query = ("SELECT LanguageCode FROM Entries WHERE UserName='{:s}'".format(PUsername))
     cursor.execute(query)
     results = cursor.fetchall()
@@ -131,8 +136,9 @@ def Registration (emailSubject, baseSenderEmail, emailSender, cnx):
 
     if len(newLang) > 0 :
         for lang in newLang :
-            query = ("INSERT INTO Entries (UserName, LanguageCode) VALUES ('{:s}','{:s}')".format(PUsername,lang))
-            cursor.execute(query)
+            if len(lang) == 2: 
+                query = ("INSERT INTO Entries (UserName, LanguageCode) VALUES ('{:s}','{:s}')".format(PUsername,lang))
+                cursor.execute(query)
 
     cnx.commit()
     cursor.close()
@@ -141,18 +147,25 @@ def Registration (emailSubject, baseSenderEmail, emailSender, cnx):
 # --------------------------------------------------
 
 def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
-    #print (to_folder, smtp_mailbox)
     actionCodes = ['inc_minuteswatched','inc_pagesread','edt_minuteswatched','del_minuteswatched','undo', 'edt_pagesread', 'del_pagesread']
     cursor = cnx.cursor()
-    tmp = re.findall('.*\s+"([\w\s]+)"\s+.*', emailSubject)
+    tmp = re.findall('"(.*)"', emailSubject)
+    #print ("{:s}".format (emailSubject))
+    #print (tmp)
     title = tmp[0]
-    tmp = re.findall(".*#.*\s+(\d+)\s+.*", emailSubject)
-    number = int(tmp[0])
-    tmp = re.findall('.*#(\w{1,3})\s+.*',emailSubject)
-    language = tmp[0]
+    tmpnum = re.findall(".*#.*\s+(\d+)\s+.*", emailSubject)
+    number = int(tmpnum[0])
+
+    tmp = re.findall('.*#(\w{1,3})( |$)',emailSubject)
+    #print(tmp)
+    language = list(tmp[0])[0]
+    #print(language)
+    
+    #tmp = re.findall('.*#(\w{1,3})\s+.*',emailSubject)
+    #language = tmp[0]
     now = datetime.now()
     tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
-
+    
     query = ("SELECT UserName FROM Participants WHERE Email='{:s}'".format(baseSenderEmail))
     cursor.execute(query)
     results = cursor.fetchone()
@@ -160,14 +173,14 @@ def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
         PUsername = results[0]
     else:
         print("Unregistered User: {:s}".format(baseSenderEmail))
-        return
+        return 
 
     query = ("SELECT Id FROM Entries WHERE UserName='{:s}' and LanguageCode='{:s}'".format(PUsername,language))
     cursor.execute(query)
     results = cursor.fetchone()
     if results != None :
         entryId = results[0]
-
+        
     for token in emailSubject.split():
         if token == "#read" or token == "#reading" :
             query = ("INSERT INTO Actions (EntryId, ActionCode, Time, AmountData, TextData) VALUES ('{:d}', '{:s}' , '{:s}', '{:d}', '{:s}')".format(entryId, actionCodes[1], tmstamp, number, title)  )
@@ -187,7 +200,7 @@ def Update (emailSubject, baseSenderEmail, emailSender, cnx ):
     cursor.close()
     exit(0)
     SendEmail(emailSubject,emailSender)
-
+        
 # --------------------------------------------------
 
 def main():
@@ -213,24 +226,23 @@ def main():
             x = re.findall(email_ptrn, emailSender)
             baseSenderEmail = x[0]
             if re.search(".*#register.*", emailSubject):
-                if re.search("^#register\s+\w+\s+#.*", emailSubject):
-                    Registration(emailSubject, baseSenderEmail, emailSender, cnx)
-                else:
-                    print ("Malformed Subject")
+                Registration(emailSubject, baseSenderEmail, emailSender, cnx)
             elif  re.search(".*#[a-zA-Z]+.*\d+", emailSubject):
                 Update (emailSubject,baseSenderEmail, emailSender, cnx )
 
             result = mail_server.copy(num, to_folder)
             if result[0] == 'OK':
                 mov, data = mail_server.store( num, '+FLAGS', r'(\Deleted)')
-
+            
+                
     finally:
         # Disconnect from the IMAP server
         if mail_server.state != 'AUTH':
             mail_server.close()
         mail_server.logout()
 
-    #print ("Disconnected\n")
+        
+    print ("Disconnected\n")
     return 0
 
 if __name__ == '__main__':
