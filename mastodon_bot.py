@@ -1,37 +1,57 @@
+#!/usr/bin/python
+#!/usr/bin/env python
 
-import mastodon
+#from  mastodon import Mastodon
+from mastodon import Mastodon
 import configparser
 import mysql.connector
 from mysql.connector import Error
 from mysql.connector import errorcode
 import time
+import getpass
+import sys
+import re
+import traceback
+from datetime import datetime
+from mysql.connector import errorcode
+import subprocess
+
+
+# -------------------
+# INSERT INTO Preferences (Name,Value) Values ('last_mastodon_check_time', now());
+# -------------------
+
+# Method to read config file settings
+def read_config():
+    config = configparser.ConfigParser()
+    config.read('configurations.ini')
+    return config
+
+config = read_config()
+
+client_id=config['MASTODON']['CLIENT_ID']
+client_secret=config['MASTODON']['CLIENT_SECRET']
+access_token=config['MASTODON']['ACCESS_TOKEN']
+api_base_url=config['MASTODON']['API_BASE_URL']
+
 
 def connect_to_mastodon():
-    # Read the configuration file
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    
     # Connect to the Mastodon API using the credentials in the configuration file
     mastodon = Mastodon(
-        client_id=config['MASTODON']['CLIENT_ID'],
-        client_secret=config['MASTODON']['CLIENT_SECRET'],
-        access_token=config['MASTODON']['ACCESS_TOKEN'],
-        api_base_url=config['MASTODON']['API_BASE_URL']
+        client_id,
+        client_secret,
+        access_token,
+        api_base_url
     )
-    
     return mastodon
 
 def connect_to_database():
-    # Read the configuration file
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    
     # Connect to the MySQL database using the credentials in the configuration file
     cnx = mysql.connector.connect(
-        host=config['MYSQL']['HOST'],
-        user=config['MYSQL']['USER'],
-        password=config['MYSQL']['PASSWORD'],
-        database=config['MYSQL']['DATABASE']
+        host=config['MYSQL']['DB_HOST'],
+        user=config['MYSQL']['DB_USER'],
+        password=config['MYSQL']['DB_PASSWORD'],
+        database=config['MYSQL']['DB_NAME']
     )
     
     return cnx
@@ -39,7 +59,7 @@ def connect_to_database():
 def get_last_check_time(cnx):
     # Get the timestamp of the last time the program ran from the database
     cursor = cnx.cursor()
-    query = "SELECT value FROM settings WHERE name = 'last_check_time'"
+    query = "SELECT Value FROM Preferences WHERE Name = 'last_mastodon_check_time'"
     cursor.execute(query)
     result = cursor.fetchone()
     last_check_time = result[0] if result else None
@@ -50,7 +70,7 @@ def get_last_check_time(cnx):
 def set_last_check_time(cnx, last_check_time):
     # Update the timestamp of the last time the program ran in the database
     cursor = cnx.cursor()
-    query = "UPDATE settings SET value = %s WHERE name = 'last_check_time'"
+    query = "UPDATE Preferences SET Value = %s WHERE Name = 'last_mastodon_check_time'"
     cursor.execute(query, (last_check_time,))
     cnx.commit()
     cursor.close()
@@ -77,21 +97,31 @@ def follow_sender(mastodon, cnx, sender):
     cursor.close()
 
 
+def get_direct_messages(mastodon):
+    # Get all status messages from the user's timeline
+    #statuses = mastodon.timeline_home()
+    statuses = mastodon.timeline()
+    print(statuses)
+    # Filter the status messages to only include direct messages
+    direct_messages = [status for status in statuses if status["visibility"] == "direct"]
+    
+    return direct_messages
+
+
 def respond_to_message(mastodon, message):
     # Respond to the message with a thank you message
     response = "Thank you for your message!"
     mastodon.status_post(status=response, in_reply_to_id=message["id"], visibility="direct")
 
-    
+
+
 # main function
 def main():
-    # connect to Mastodon API
     mastodon = connect_to_mastodon()
     cnx = connect_to_database()
-    # check for new direct messages
     messages = get_direct_messages(mastodon)
     
-    # process each direct message
+    # print("process each direct message")
     for message in messages:
         # store message and sender's profile information
         store_message_and_sender_info(message)
@@ -99,8 +129,17 @@ def main():
         # follow the sender
         follow_sender(mastodon, message['account']['id'])
         
-        # reply to the direct message
+        #print("{:s}".format(message))
         respond_to_message(mastodon, message)
 
+    print ("Disconnected\n")
+    return 0
+        
 if __name__ == '__main__':
-    main()
+    try:
+        exit_code = main()
+    except Exception:
+        traceback.print_exc()
+        exit_code = 1
+    sys.exit(exit_code)
+
