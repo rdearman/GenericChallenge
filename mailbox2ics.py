@@ -19,23 +19,6 @@ from mysql.connector import errorcode
 import subprocess
  
 
-
-# --- TODO --- #
-# [] update the streak data 
-# ---------------------------------------------------------------
-# [X] delete emails after processing, or move into a subdirectory
-# [X] get email address of the sender ? Probably in the msg
-# [X] change all the print statements to use the {:s} .format() system
-# [X] respond to email with "SC Bot processed your email, #keyword...
-# [X] move password, username, smtp server, etc into the DB or config file. 
-# [X] Add in a DB configuration into the config file
-# [X] read from DB
-# [X] deal with reading keywords.
-# [X] update the DB actions for the users registration email.
-# [X] update the DB actions for the users update email.
-# [X] modify Live DB: ALTER TABLE Participants ADD COLUMN Email VARCHAR(255) ;
-
-
 # Method to read config file settings
 def read_config():
     config = configparser.ConfigParser()
@@ -51,7 +34,6 @@ emailSubject = ""
 emailSender = ""
 now = datetime.now()
 today = subprocess.getoutput('date -R')
-#today = now.strftime("%m/%d/%Y %H:%M:%S")
 TLS_port = config['SMTP']['TLS_port']
 port = config['SMTP']['SMTP_port']
 smtp_hostname = config['SMTP']['smtp_server']
@@ -218,6 +200,8 @@ def main():
             exit(0)
         (typ, [message_ids]) = mail_server.search(None, 'ALL')
         for num in message_ids.split():          # Get a Message object
+            # print ("{:s}".format (emailSubject))
+            # print("{:s} :: {:s}".format(str(num), to_folder))
             typ, message_parts = mail_server.fetch(num, '(RFC822)')
             msg = email.message_from_bytes(message_parts[0][1])
             emailDate =  msg["Date"]
@@ -225,15 +209,19 @@ def main():
             emailSender =  msg["From"]
             x = re.findall(email_ptrn, emailSender)
             baseSenderEmail = x[0]
+            result = mail_server.copy(num, to_folder)
+            if result[0] == "OK":
+                mov, data = mail_server.store(num, '+FLAGS', r'(\Deleted)')
+            else:
+                print("Error moving msg to folder")
+                
             if re.search(".*#register.*", emailSubject):
                 Registration(emailSubject, baseSenderEmail, emailSender, cnx)
             elif  re.search(".*#[a-zA-Z]+.*\d+", emailSubject):
                 Update (emailSubject,baseSenderEmail, emailSender, cnx )
 
-            result = mail_server.copy(num, to_folder)
-            if result[0] == 'OK':
-                mov, data = mail_server.store( num, '+FLAGS', r'(\Deleted)')
-            
+
+
                 
     finally:
         # Disconnect from the IMAP server
