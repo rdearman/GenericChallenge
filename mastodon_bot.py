@@ -18,9 +18,16 @@ import subprocess
 
 
 # -------------------
-# INSERT INTO Preferences (Name,Value) Values ('last_mastodon_check_time', now());
+# INSERT INTO Preferences (Name,Value) VALUES ('last_mastodon_id', '0');
+# ALTER TABLE Participants ADD COLUMN AccountType VARCHAR(255);
 # -------------------
-# Fails on DB inserts, need to use the superchallenge DB for now. 
+# [] Only get conversations you haven't seen yet. Store the max message ID then pass
+#    that to the conversations collection functions next time it is run. Don't think I need to store the datetime. 
+#    Mastodon.conversations(max_id=None, min_id=None, since_id=None, limit=None)
+# [] Need to register and make sure it works.
+# [] Check if you can get the email address of the account with mastodon, then add that.
+# [] Work out if you can delete conversations. (Individually because it would be race conditions if you did bulk)
+# [] Tidy up and remove print statments and add good comments
 
 
 # Method to read config file settings
@@ -58,32 +65,21 @@ def connect_to_database():
     
     return cnx
 
-def get_last_check_time(cnx):
+def get_last_msg_id(cnx):
     # Get the timestamp of the last time the program ran from the database
     cursor = cnx.cursor()
     query = "SELECT Value FROM Preferences WHERE Name = 'last_mastodon_check_time'"
     cursor.execute(query)
     result = cursor.fetchone()
-    last_check_time = result[0] if result else None
+    last_id = result[0] if result else None
     cursor.close()
     
-    return last_check_time
+    return last_id
 
-def set_last_check_time(cnx, last_check_time):
-    # Update the timestamp of the last time the program ran in the database
+def set_last_msg_id(cnx, MsgId):
     cursor = cnx.cursor()
-    query = "UPDATE Preferences SET Value = %s WHERE Name = 'last_mastodon_check_time'"
+    query = "UPDATE Preferences SET Value = %s WHERE Name = 'last_mastodon_id'"
     cursor.execute(query, (last_check_time,))
-    cnx.commit()
-    cursor.close()
-
-def store_message_and_sender_info(cnx, content, sender):
-    # Store the message and sender information in the database
-    now = datetime.now()
-    tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
-    cursor = cnx.cursor()
-    query = "INSERT INTO messages (sender_id, sender_username, text, timestamp) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (sender[0], sender[1], content, tmstamp ))
     cnx.commit()
     cursor.close()
 
@@ -227,9 +223,11 @@ def main():
     for message in messages:
         #get message id
         msgId = message['id']
+        mastodon.conversations_read(msgId)
         #get message
         content = scrub_message(str(message['last_status']))
-        # check it is to the bot.
+
+        # check the message is to the bot.
         if not re.search(".*@langchallenge*", content):
             continue
         
@@ -242,13 +240,10 @@ def main():
         elif  re.search(".*#[a-zA-Z]+.*\d+", content):
             Update (mastodon, content, cnx, sender )
         else:
-            #it isn't related to our bot so remove it and move on.
+            #it isn't related to our bot so move on.
             print ("Continuing")
             continue
             
-        # store message and sender's profile information
-#        store_message_and_sender_info(cnx, content, sender)
-        
         # follow the sender
         mastodon.account_follow(sender[0])
 
