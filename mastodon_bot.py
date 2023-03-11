@@ -87,34 +87,15 @@ def store_message_and_sender_info(cnx, content, sender):
     cnx.commit()
     cursor.close()
 
-def follow_sender(mastodon, cnx, sender):
-    # Follow the sender of the message if they are not already being followed
-    cursor = cnx.cursor()
-    query = "SELECT COUNT(*) FROM followers WHERE user_id = %s"
-    cursor.execute(query, (sender['id'],))
-    result = cursor.fetchone()
-    if result[0] == 0:
-        mastodon.account_follow(sender)
-        query = "INSERT INTO followers (user_id, username, display_name) VALUES (%s, %s, %s)"
-        cursor.execute(query, (sender['id'], sender['username'], sender['display_name']))
-        cnx.commit()
-    cursor.close()
-
-
-def respond_to_message(mastodon, message):
-    # Respond to the message with a thank you message
-    response = "Thank you for your message!"
-    mastodon.status_post(status=response, in_reply_to_id=message["id"], visibility="direct")
-
-
 def scrub_message(string):
     # parse the message and remove extra rubbish
     clean = re.compile('<.*?>')
-    tmp = re.findall('\'content\': \'(\w+)\', \'filtered\'', string)
+    tmp = re.findall('\'content\': \'(.*)\', \'filtered\'', string)
     tmp = ''.join(str(x) for x in tmp)
     return re.sub(clean, '', tmp)
 
-def get_sender(string):
+
+def get_sender(string,msgId):
     # parse the message and remove extra rubbish
     sender_info = []
     clean = re.compile('<.*?>')
@@ -127,39 +108,153 @@ def get_sender(string):
     dname = re.findall('\'display_name\': \'([\w]+)\',', string)
     dname = ''.join(str(x) for x in dname)
     sender_info.append(dname)
+    sender_info.append(msgId)
+    atname = re.findall('\'acct\': \'(.*)\', \'display_name\'', string)
+    atname = ''.join(str(x) for x in atname)
+    sender_info.append(atname)
     return sender_info
-    #return re.sub(clean, '', tmp)
 
+# --------------------------------------------------
+
+def Registration(mastodon, content, cnx, sender):
+    PUsername = sender[0]
+    RegistrationLanguages = []
+    for token in content.split():
+        if token == "#register" or re.search(".*#.*", token) == None :
+            continue
+        else:
+            RegistrationLanguages.append(token.replace('#',''))
+
+    cursor = cnx.cursor()
+    query = ("SELECT UserName FROM Participants WHERE UserName='{:s}'".format(PUsername))
+    cursor.execute(query)
+    results = cursor.fetchone()
+    if results[0].lower() == PUsername :
+        PUsername = results[0]
+        update_query = ("UPDATE Participants SET AccountType='mastodon' WHERE UserName='{:s}'".format(PUsername))
+        cursor.execute(update_query)
+    else:
+        print ("ERROR")
+
+        
+    query = ("SELECT LanguageCode FROM Entries WHERE UserName='{:s}'".format(PUsername))
+    cursor.execute(query)
+    results = cursor.fetchall()
+    newLang = []
+    for val in RegistrationLanguages :
+        for res in results :
+            if str(val) != str(res[0]) :
+                newLang.append(val)
+
+    if len(newLang) > 0 :
+        for lang in newLang :
+            if len(lang) == 2: 
+                query = ("INSERT INTO Entries (UserName, LanguageCode) VALUES ('{:s}','{:s}')".format(PUsername,lang))
+                cursor.execute(query)
+
+    cnx.commit()
+    cursor.close()
+    content = "Sucessfully updated " + content
+    UpdateStatus(mastodon, sender, content)
+
+   
+# --------------------------------------------------
+
+def Update (mastodon, content, cnx, sender ):
+    actionCodes = ['inc_minuteswatched','inc_pagesread','edt_minuteswatched','del_minuteswatched','undo', 'edt_pagesread', 'del_pagesread']
+    cursor = cnx.cursor()
+    tmp = re.findall('"(.*)"', content)
+    title = tmp[0]
+    tmpnum = re.findall(".*#.*\s+(\d+)\s+.*", content)
+    number = int(tmpnum[0])
+
+    tmp = re.findall('.*#(\w{1,3})( |$)',content)
+    language = list(tmp[0])[0]
+    now = datetime.now()
+    tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
     
+    query = ("SELECT UserName FROM Participants WHERE AccountType='mastodon' AND UserName='{:s}'".format(sender[1]))
+    cursor.execute(query)
+    results = cursor.fetchone()
+    if results != None :
+        PUsername = results[0]
+    else:
+        print("Unregistered User: {:s} ".format(sender[1]))
+        msg = content.replace('@langchallenge', '')
+        UpdateStatus(mastodon, sender, "Account is not registered when processing message " + msg + " please send a registration message.")
+        return 
+
+    query = ("SELECT Id FROM Entries WHERE UserName='{:s}' and LanguageCode='{:s}'".format(PUsername,language))
+    cursor.execute(query)
+    results = cursor.fetchone()
+    if results != None :
+        entryId = results[0]
+        
+    for token in content.split():
+        if token == "#read" or token == "#reading" :
+            query = ("INSERT INTO Actions (EntryId, ActionCode, Time, AmountData, TextData) VALUES ('{:d}', '{:s}' , '{:s}', '{:d}', '{:s}')".format(entryId, actionCodes[1], tmstamp, number, title)  )
+            cursor.execute(query)
+            query = ("UPDATE Entries SET PagesRead=(SELECT sum(AmountData) FROM Actions WHERE ActionCode='{:s}' AND EntryId='{:d}') where Id='{:d}'".format(actionCodes[1],entryId,entryId ) )
+            cursor.execute(query)
+        elif token == "#watch" or token == "#watched" or token == "#watching":
+            query = ("INSERT INTO Actions (EntryId, ActionCode, Time, AmountData, TextData) VALUES ('{:d}', '{:s}' , '{:s}', '{:d}', '{:s}')".format(entryId, actionCodes[0], tmstamp, number, title))
+            cursor.execute(query)
+            query = ("UPDATE Entries SET MinutesWatched=(SELECT sum(AmountData) FROM Actions WHERE ActionCode='{:s}' AND EntryId='{:d}') where Id='{:d}'".format(actionCodes[0],entryId,entryId ) )
+            cursor.execute(query)
+        else:
+            continue
+
+    cnx.commit()
+    cursor.close()
+    content = "Sucessfully updated " + content
+    UpdateStatus(mastodon, sender, content)
+        
+# --------------------------------------------------
+
+def UpdateStatus(mastodon, sender, content):
+    content = content.replace('@langchallenge','')
+    content = "@" + sender[4] + " " + content
+    mastodon.status_post(content, visibility='Direct')
+
+# --------------------------------------------------
+        
 # main function
 def main():
     mastodon = connect_to_mastodon()
     cnx = connect_to_database()
-    response = "Thank you for your message!"
     messages = mastodon.conversations()
     
     for message in messages:
         #get message id
         msgId = message['id']
-        
         #get message
         content = scrub_message(str(message['last_status']))
-
+        # check it is to the bot.
+        if not re.search(".*@langchallenge*", content):
+            continue
+        
         #get sender indormation
-        sender = get_sender(str(message['accounts']))
+        sender = get_sender(str(message['accounts']),msgId)
 
+        #determine if message is a registration or an update
+        if re.search(".*#register.*", content):
+            Registration(mastodon, content, cnx, sender)
+        elif  re.search(".*#[a-zA-Z]+.*\d+", content):
+            Update (mastodon, content, cnx, sender )
+        else:
+            #it isn't related to our bot so remove it and move on.
+            print ("Continuing")
+            continue
+            
         # store message and sender's profile information
-        store_message_and_sender_info(cnx, content, sender)
+#        store_message_and_sender_info(cnx, content, sender)
         
         # follow the sender
-        #follow_sender(mastodon, sender)
-
-        
-        #respond to sender
-        #respond_to_message(mastodon, message)
+        mastodon.account_follow(sender[0])
 
         #remove direct message from inbox
-        #remove_message_from_inbox(msgId)
+        #mastodon.status_delete(sender[3])        
+
         
     print ("Disconnected\n")
     return 0
