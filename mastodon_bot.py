@@ -20,6 +20,8 @@ import subprocess
 # -------------------
 # INSERT INTO Preferences (Name,Value) Values ('last_mastodon_check_time', now());
 # -------------------
+# Fails on DB inserts, need to use the superchallenge DB for now. 
+
 
 # Method to read config file settings
 def read_config():
@@ -75,11 +77,13 @@ def set_last_check_time(cnx, last_check_time):
     cnx.commit()
     cursor.close()
 
-def store_message_and_sender_info(cnx, message, sender):
+def store_message_and_sender_info(cnx, content, sender_id, sender_username, sender_displayname):
     # Store the message and sender information in the database
+    now = datetime.now()
+    tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
     cursor = cnx.cursor()
     query = "INSERT INTO messages (sender_id, sender_username, text, timestamp) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (sender['id'], sender['username'], message['text'], message['timestamp']))
+    cursor.execute(query, (sender_id, sender_username, content, tmstamp ))
     cnx.commit()
     cursor.close()
 
@@ -90,22 +94,11 @@ def follow_sender(mastodon, cnx, sender):
     cursor.execute(query, (sender['id'],))
     result = cursor.fetchone()
     if result[0] == 0:
-        mastodon.follow(sender['id'])
+        mastodon.account_follow(sender)
         query = "INSERT INTO followers (user_id, username, display_name) VALUES (%s, %s, %s)"
         cursor.execute(query, (sender['id'], sender['username'], sender['display_name']))
         cnx.commit()
     cursor.close()
-
-
-def get_direct_messages(mastodon):
-    # Get all status messages from the user's timeline
-    #statuses = mastodon.timeline_home()
-    statuses = mastodon.timeline()
-    print(statuses)
-    # Filter the status messages to only include direct messages
-    direct_messages = [status for status in statuses if status["visibility"] == "direct"]
-    
-    return direct_messages
 
 
 def respond_to_message(mastodon, message):
@@ -114,24 +107,63 @@ def respond_to_message(mastodon, message):
     mastodon.status_post(status=response, in_reply_to_id=message["id"], visibility="direct")
 
 
+def scrub_message(string):
+    # parse the message and remove extra rubbish
+    clean = re.compile('<.*?>')
+    tmp = re.findall('\'content\': \'(\w+)\', \'filtered\'', string)
+    tmp = ''.join(str(x) for x in tmp)
+    return re.sub(clean, '', tmp)
 
+def get_sender(string):
+    # parse the message and remove extra rubbish
+    sender_info = []
+    clean = re.compile('<.*?>')
+    uid = re.findall('\[\{\'id\': ([\d]+),', string)
+    uid = ''.join(str(x) for x in uid)
+    sender_info.append(uid)
+    uname = re.findall('\'username\': \'([\w]+)\',', string)
+    uname = ''.join(str(x) for x in uname)
+    sender_info.append(uname)
+    dname = re.findall('\'display_name\': \'([\w]+)\',', string)
+    dname = ''.join(str(x) for x in dname)
+    sender_info.append(dname)
+    return sender_info
+    #return re.sub(clean, '', tmp)
+
+    
 # main function
 def main():
     mastodon = connect_to_mastodon()
     cnx = connect_to_database()
-    messages = get_direct_messages(mastodon)
+    response = "Thank you for your message!"
+    messages = mastodon.conversations()
     
-    # print("process each direct message")
     for message in messages:
+        #get message id
+        msgId = message['id']
+        
+        #get message
+        content = scrub_message(str(message['last_status']))
+
+        #get sender indormation
+        sender = get_sender(str(message['accounts']))
+        sender_id = sender[0]
+        sender_username = sender[1]
+        sender_displayname = sender[2]
+
         # store message and sender's profile information
-        store_message_and_sender_info(message)
+        store_message_and_sender_info(cnx, content, sender_id, sender_username, sender_displayname)
         
         # follow the sender
-        follow_sender(mastodon, message['account']['id'])
-        
-        #print("{:s}".format(message))
-        respond_to_message(mastodon, message)
+        #follow_sender(mastodon, sender)
 
+        
+        #respond to sender
+        #respond_to_message(mastodon, message)
+
+        #remove direct message from inbox
+        #remove_message_from_inbox(msgId)
+        
     print ("Disconnected\n")
     return 0
         
