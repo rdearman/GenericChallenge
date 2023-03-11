@@ -10,7 +10,8 @@ The longer term aim of this project is to make the creation of new challenges an
 The longer term project with be written in Python and MySQL for the background inputs and updates, a web front-end is needed but language is undecided. 
 
 For the moment the short term goal is to:
-- Write a python program which will do updates to the Superchallenge database in leiu of Twitter
+- Write a python program which will do updates to the Superchallenge
+  database via email in leiu of Twitter
 - Write a python program which will do updates from a Mastadon Bot
 
 Medium term goals:
