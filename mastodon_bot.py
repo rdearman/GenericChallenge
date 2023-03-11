@@ -77,13 +77,13 @@ def set_last_check_time(cnx, last_check_time):
     cnx.commit()
     cursor.close()
 
-def store_message_and_sender_info(cnx, content, sender_id, sender_username, sender_displayname):
+def store_message_and_sender_info(cnx, content, sender):
     # Store the message and sender information in the database
     now = datetime.now()
     tmstamp = now.strftime("%Y/%m/%d %H:%M:%S")
     cursor = cnx.cursor()
     query = "INSERT INTO messages (sender_id, sender_username, text, timestamp) VALUES (%s, %s, %s, %s)"
-    cursor.execute(query, (sender_id, sender_username, content, tmstamp ))
+    cursor.execute(query, (sender[0], sender[1], content, tmstamp ))
     cnx.commit()
     cursor.close()
 
@@ -147,12 +147,9 @@ def main():
 
         #get sender indormation
         sender = get_sender(str(message['accounts']))
-        sender_id = sender[0]
-        sender_username = sender[1]
-        sender_displayname = sender[2]
 
         # store message and sender's profile information
-        store_message_and_sender_info(cnx, content, sender_id, sender_username, sender_displayname)
+        store_message_and_sender_info(cnx, content, sender)
         
         # follow the sender
         #follow_sender(mastodon, sender)
