@@ -15,7 +15,9 @@ import traceback
 from datetime import datetime
 from mysql.connector import errorcode
 import subprocess
+import logging
 
+logging.basicConfig(filename='mastodon_bot.log', level=logging.ERROR)
 
 # -------------------
 # INSERT INTO Preferences (Name,Value) VALUES ('last_mastodon_id', '0');
@@ -86,9 +88,7 @@ def set_last_msg_id(cnx, MsgId):
 def scrub_message(string):
     # parse the message and remove extra rubbish
     clean = re.compile('<.*?>')
-    tmp = re.findall('\'content\': \'(.*)\', \'filtered\'', string)
-    tmp = ''.join(str(x) for x in tmp)
-    return re.sub(clean, '', tmp)
+    return re.sub(clean, '',string)
 
 
 def get_sender(string,msgId):
@@ -210,8 +210,10 @@ def Update (mastodon, content, cnx, sender ):
 def UpdateStatus(mastodon, sender, content):
     content = content.replace('@langchallenge','')
     content = "@" + sender[4] + " " + content
-    mastodon.status_post(content, visibility='Direct')
-
+    try:
+        mastodon.status_post(content, visibility='Direct')
+    except MastodonError as Err:
+        print("can't post content: {:s} because of error: {:s}".format(content, Err))
 # --------------------------------------------------
         
 # main function
@@ -225,7 +227,8 @@ def main():
         msgId = message['id']
         mastodon.conversations_read(msgId)
         #get message
-        content = scrub_message(str(message['last_status']))
+        #content = scrub_message(str(message['last_status']))
+        content = scrub_message(message.last_status.content)
 
         # check the message is to the bot.
         if not re.search(".*@langchallenge*", content):
